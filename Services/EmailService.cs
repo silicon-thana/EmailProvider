@@ -5,47 +5,69 @@ using EmailProvider.Models;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace EmailProvider.Services;
-
-public class EmailService(EmailClient emailclient, ILogger<EmailService> logger) : IEmailService
+namespace EmailProvider.Services
 {
-    private readonly EmailClient _emailClient = emailclient;
-    private readonly ILogger<EmailService> _logger = logger;
-
-    public EmailRequest UnpackEmailRequest(ServiceBusReceivedMessage message)
+    public class EmailService : IEmailService
     {
-        try
+        private readonly EmailClient _emailClient;
+        private readonly ILogger<EmailService> _logger;
+
+        public EmailService(EmailClient emailClient, ILogger<EmailService> logger)
         {
-            var emailRequest = JsonConvert.DeserializeObject<EmailRequest>(message.Body.ToString());
-            if (emailRequest != null)
-                return emailRequest;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"ERROR : EmailSender.UnpackEmailRequest :: {ex.Message}");
+            _emailClient = emailClient;
+            _logger = logger;
         }
 
-        return null!;
-    }
-
-    public bool SendEmail(EmailRequest emailRequest)
-    {
-        try
+        public EmailRequest UnpackEmailRequest(ServiceBusReceivedMessage message)
         {
-            var result = _emailClient.Send(WaitUntil.Completed,
-            senderAddress: Environment.GetEnvironmentVariable("SenderAddress"),
-            recipientAddress: emailRequest.RecipientAddress,
-            subject: emailRequest.Subject,
-            htmlContent: emailRequest.HtmlContent,
-            plainTextContent: emailRequest.PlainTextContent);
-            if (result.HasCompleted)
-                return true;
+            try
+            {
+                var emailRequest = JsonConvert.DeserializeObject<EmailRequest>(message.Body.ToString());
+                if (emailRequest != null)
+                {
+                    _logger.LogInformation("Successfully unpacked email request");
+                    return emailRequest;
+                }
+                else
+                {
+                    _logger.LogError("Email request is null after deserialization");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"ERROR : EmailService.UnpackEmailRequest :: {ex.Message}");
+            }
 
+            return null!;
         }
-        catch (Exception ex)
+
+        public bool SendEmail(EmailRequest emailRequest)
         {
-            _logger.LogError($"ERROR : EmailSender.SendEmailAsync :: {ex.Message}");
+            try
+            {
+                var result = _emailClient.Send(
+                    WaitUntil.Completed,
+                    senderAddress: Environment.GetEnvironmentVariable("SenderAddress"),
+                    recipientAddress: emailRequest.RecipientAddress,
+                    subject: emailRequest.Subject,
+                    htmlContent: emailRequest.HtmlContent,
+                    plainTextContent: emailRequest.PlainTextContent);
+
+                if (result.HasCompleted)
+                {
+                    _logger.LogInformation("Email sent successfully");
+                    return true;
+                }
+                else
+                {
+                    _logger.LogError("Email sending did not complete successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"ERROR : EmailService.SendEmail :: {ex.Message}");
+            }
+            return false;
         }
-        return false;
     }
 }
