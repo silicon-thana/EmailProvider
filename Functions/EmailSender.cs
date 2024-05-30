@@ -9,34 +9,54 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace EmailProvider.Functions;
-
-public class EmailSender(ILogger<EmailSender> logger, IEmailService emailService)
+namespace EmailProvider.Functions
 {
-    private readonly ILogger<EmailSender> _logger = logger;
-    private readonly IEmailService _emailService = emailService;
-
-    [Function(nameof(EmailSender))]
-    public async Task Run(
-        [ServiceBusTrigger("email_request", Connection = "ServiceBusConnection")]
-        ServiceBusReceivedMessage message,
-        ServiceBusMessageActions messageActions)
+    public class EmailSender
     {
-        try
-        {
-            var emailRequest = _emailService.UnpackEmailRequest(message);
-            if (emailRequest != null && !string.IsNullOrEmpty(emailRequest.RecipientAddress))
-            {
-                if (_emailService.SendEmail(emailRequest))
-                {
-                    await messageActions.CompleteMessageAsync(message);
-                }
+        private readonly ILogger<EmailSender> _logger;
+        private readonly IEmailService _emailService;
 
-            }
-        }
-        catch (Exception ex)
+        public EmailSender(ILogger<EmailSender> logger, IEmailService emailService)
         {
-            _logger.LogError($"ERROR : EmailSender.Run :: {ex.Message}");
+            _logger = logger;
+            _emailService = emailService;
+        }
+
+        [Function(nameof(EmailSender))]
+        public async Task Run(
+            [ServiceBusTrigger("email_request", Connection = "ServiceBusConnection")]
+            ServiceBusReceivedMessage message,
+            ServiceBusMessageActions messageActions)
+        {
+            try
+            {
+                var emailRequest = _emailService.UnpackEmailRequest(message);
+                if (emailRequest != null && !string.IsNullOrEmpty(emailRequest.RecipientAddress))
+                {
+                    _logger.LogInformation($"Sending email to {emailRequest.RecipientAddress}");
+
+                    if (_emailService.SendEmail(emailRequest))
+                    {
+                        await messageActions.CompleteMessageAsync(message);
+                        _logger.LogInformation($"Email sent to {emailRequest.RecipientAddress} and message completed");
+                    }
+                    else
+                    {
+                        _logger.LogError($"Failed to send email to {emailRequest.RecipientAddress}");
+                        // Optionally, you can handle dead-lettering or retry logic here
+                    }
+                }
+                else
+                {
+                    _logger.LogError("Invalid email request or recipient address is empty");
+                    // Optionally, handle invalid message
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"ERROR : EmailSender.Run :: {ex.Message}");
+                // Optionally, handle error (e.g., dead-letter message)
+            }
         }
     }
 }
